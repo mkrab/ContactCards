@@ -53,6 +53,65 @@ gboolean validateUrl(char *url){
 }
 
 /**
+ * validateDANE - simple way to check the certificate
+ */
+static gboolean validateDANE(int serverID){
+	printfunc(__func__);
+
+	gboolean		result = FALSE;
+	char			*tmp = NULL;
+	ldns_resolver	*res;
+	ldns_rdf		*domain;
+	ldns_pkt		*p;
+	ldns_rr_list	*tlsa;
+	ldns_status		s;
+
+	p = NULL;
+	tlsa = NULL;
+	domain = NULL;
+	res = NULL;
+
+	tmp = getSingleChar(appBase.db, "cardServer", "srvUrl", 1, "serverID", serverID, "", "", "", "", "", 0);
+
+	domain = ldns_dname_new_frm_str(tmp);
+	if(!domain){
+		g_free(tmp);
+		return FALSE;
+	}
+	g_free(tmp);
+
+	s = ldns_resolver_new_frm_file(&res, NULL);
+	if (s != LDNS_STATUS_OK) {
+		return FALSE;
+	}
+
+	p = ldns_resolver_query(res, domain, LDNS_RR_TYPE_TLSA, LDNS_RR_CLASS_IN,LDNS_RD);
+
+	ldns_rdf_deep_free(domain);
+
+	if(!p){
+		return FALSE;
+	}
+
+	tlsa = ldns_pkt_rr_list_by_type(p, LDNS_RR_TYPE_TLSA, LDNS_SECTION_ANSWER);
+
+	if(!tlsa){
+		ldns_pkt_free(p);
+		ldns_resolver_deep_free(res);
+		return FALSE;
+	}
+
+	ldns_rr_list_sort(tlsa);
+	ldns_rr_list_print(stdout, tlsa);
+	ldns_rr_list_deep_free(tlsa);
+
+	ldns_pkt_free(p);
+	ldns_resolver_deep_free(res);
+
+	return result;
+}
+
+/**
  * verifyCert - verify a certificate of a server
  */
 static int verifyCert(void *trans, int failures, const ne_ssl_certificate *cert){
@@ -122,6 +181,10 @@ newCert:
 	issued = (char *) ne_ssl_cert_identity(cert);
 	issuer = ne_ssl_readable_dname(ne_ssl_cert_issuer(cert));
 	setServerCert(appBase.db, serverID, exists, trust, newCer, digest, issued, issuer);
+
+	if(validateDANE(serverID) == TRUE){
+		setSingleInt(appBase.db, "certs", "trustFlag", (int) ContactCards_DIGEST_TRUSTED, "serverID", serverID);
+	}
 
 fastExit:
 	g_free(dbDigest);

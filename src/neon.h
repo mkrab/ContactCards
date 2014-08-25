@@ -27,6 +27,9 @@
 #include <ne_string.h>
 #include <ne_basic.h>
 #include <ne_props.h>
+
+#include <ldns/ldns.h>
+
 #define NEON_LIB_H
 #endif	/*	NEON_LIB_H	*/
 
