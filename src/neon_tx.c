@@ -52,6 +52,60 @@ gboolean validateUrl(char *url){
 	return g_regex_match_simple("^(https://|carddavs://|webdavs://)?([A-Za-z0-9-]+\\.)+[A-Za-z-]{1,22}(:[0-9]{1,5})?(/|(/[A-Za-z0-9-\\.@]+)*(/)?)?$", url, G_REGEX_EXTENDED, 0);
 }
 
+ldns_status ssl_connect_and_get_cert_chain(X509** cert, STACK_OF(X509)** extra_certs, SSL* ssl, ldns_rdf* address, uint16_t port)
+{
+	struct sockaddr_storage *a = NULL;
+	size_t a_len = 0;
+	int sock;
+	int r;
+
+	assert(cert != NULL);
+	assert(extra_certs != NULL);
+
+	a = ldns_rdf2native_sockaddr_storage(address, port, &a_len);
+
+	/*	We only use TCP		*/
+	sock = socket((int)((struct sockaddr*)a)->sa_family, SOCK_STREAM, IPPROTO_TCP);
+
+	if (sock == -1) {
+		LDNS_FREE(a);
+		return LDNS_STATUS_NETWORK_ERR;
+	}
+	if (connect(sock, (struct sockaddr*)a, (socklen_t)a_len) == -1) {
+		LDNS_FREE(a);
+		return LDNS_STATUS_NETWORK_ERR;
+	}
+	LDNS_FREE(a);
+	if (! SSL_clear(ssl)) {
+		close(sock);
+		fprintf(stderr, "SSL_clear\n");
+		return LDNS_STATUS_SSL_ERR;
+	}
+
+	SSL_set_connect_state(ssl);
+	(void) SSL_set_mode(ssl, SSL_MODE_AUTO_RETRY);
+	if (! SSL_set_fd(ssl, sock)) {
+		close(sock);
+		fprintf(stderr, "SSL_set_fd\n");
+		return LDNS_STATUS_SSL_ERR;
+	}
+	for (;;) {
+		ERR_clear_error();
+		if ((r = SSL_do_handshake(ssl)) == 1) {
+			break;
+		}
+		r = SSL_get_error(ssl, r);
+		if (r != SSL_ERROR_WANT_READ && r != SSL_ERROR_WANT_WRITE) {
+			fprintf(stderr, "handshaking SSL_get_error: %d\n", r);
+			return LDNS_STATUS_SSL_ERR;
+		}
+	}
+	*cert = SSL_get_peer_certificate(ssl);
+	*extra_certs = SSL_get_peer_cert_chain(ssl);
+
+	return LDNS_STATUS_OK;
+}
+
 /**
  * validateDANE - simple way to check the certificate
  */
@@ -60,54 +114,118 @@ static gboolean validateDANE(int serverID){
 
 	gboolean		result = FALSE;
 	char			*tmp = NULL;
-	ldns_resolver	*res;
-	ldns_rdf		*domain;
-	ldns_pkt		*p;
-	ldns_rr_list	*tlsa;
-	ldns_status		s;
+	ldns_resolver	*res = NULL;
+	ldns_pkt		*p = NULL;
+	ldns_rr_list	*tlsas = NULL;
+	ldns_status		s = LDNS_STATUS_ERR;
+	X509			*cert;
+	STACK_OF(X509)	*extra_certs;
+	X509_STORE		*store;
+	SSL				*ssl = NULL;
+	SSL_CTX			*ctx = NULL;
+	ldns_rdf		*address = NULL;
 
-	p = NULL;
-	tlsa = NULL;
-	domain = NULL;
-	res = NULL;
+debugCC("%s():%d\n", __func__, __LINE__);
+
+	SSL_load_error_strings();
+	SSL_library_init();
+debugCC("%s():%d\n", __func__, __LINE__);
+
+	ctx = SSL_CTX_new(SSLv23_client_method());
+	if (!ctx) {
+		debugCC("%s():%d\n", __func__, __LINE__);
+		goto fastExit;
+	}
+debugCC("%s():%d\n", __func__, __LINE__);
+
+	ssl = SSL_new(ctx);
+	if (!ssl) {
+		debugCC("%s():%d\n", __func__, __LINE__);
+		goto fastExit;
+	}
+debugCC("%s():%d\n", __func__, __LINE__);
+
+	store = X509_STORE_new();
+	if(!store){
+		debugCC("%s():%d\n", __func__, __LINE__);
+		goto fastExit;
+	}
+debugCC("%s():%d\n", __func__, __LINE__);
 
 	tmp = getSingleChar(appBase.db, "cardServer", "srvUrl", 1, "serverID", serverID, "", "", "", "", "", 0);
 
-	domain = ldns_dname_new_frm_str(tmp);
-	if(!domain){
-		g_free(tmp);
-		return FALSE;
+	s = ldns_str2rdf_aaaa(&address, tmp);
+	if (s == LDNS_STATUS_OK) {
+		debugCC("%s():%d\n", __func__, __LINE__);
+		/*	Second try on old protocoll	*/
+		s = ldns_str2rdf_a(&address, tmp);
+		if (s == LDNS_STATUS_OK) {
+			debugCC("%s():%d\n", __func__, __LINE__);
+			goto fastExit;
+		}
 	}
-	g_free(tmp);
+	s = ssl_connect_and_get_cert_chain(&cert, &extra_certs,
+					ssl, address, 443);
+	if (s == LDNS_STATUS_NETWORK_ERR) {
+		goto fastExit;
+	}
 
+debugCC("%s():%d\n", __func__, __LINE__);
 	s = ldns_resolver_new_frm_file(&res, NULL);
 	if (s != LDNS_STATUS_OK) {
 		return FALSE;
 	}
 
-	p = ldns_resolver_query(res, domain, LDNS_RR_TYPE_TLSA, LDNS_RR_CLASS_IN,LDNS_RD);
+debugCC("%s():%d\n", __func__, __LINE__);
+	p = ldns_resolver_query(res, address, LDNS_RR_TYPE_TLSA, LDNS_RR_CLASS_IN,LDNS_RD);
 
-	ldns_rdf_deep_free(domain);
-
+debugCC("%s():%d\n", __func__, __LINE__);
 	if(!p){
 		return FALSE;
 	}
 
-	tlsa = ldns_pkt_rr_list_by_type(p, LDNS_RR_TYPE_TLSA, LDNS_SECTION_ANSWER);
+debugCC("%s():%d\n", __func__, __LINE__);
+	tlsas = ldns_pkt_rr_list_by_type(p, LDNS_RR_TYPE_TLSA, LDNS_SECTION_ANSWER);
 
-	if(!tlsa){
+debugCC("%s():%d\n", __func__, __LINE__);
+	if(!tlsas){
 		ldns_pkt_free(p);
 		ldns_resolver_deep_free(res);
 		return FALSE;
 	}
-
+debugCC("%s():%d\n", __func__, __LINE__);
+	s = ldns_dane_verify(tlsas, cert, extra_certs, store);
+	if (s != LDNS_STATUS_OK) {
+		goto fastExit;
+	}
+/*
+debugCC("%s():%d\n", __func__, __LINE__);
 	ldns_rr_list_sort(tlsa);
 	ldns_rr_list_print(stdout, tlsa);
 	ldns_rr_list_deep_free(tlsa);
+*/
 
-	ldns_pkt_free(p);
-	ldns_resolver_deep_free(res);
+fastExit:
+debugCC("%s():%d\n", __func__, __LINE__);
+	if(ctx)
+		SSL_CTX_free(ctx);
+debugCC("%s():%d\n", __func__, __LINE__);
+	if(tmp)
+		g_free(tmp);
+debugCC("%s():%d\n", __func__, __LINE__);
+	if(store)
+		X509_STORE_free(store);
+debugCC("%s():%d\n", __func__, __LINE__);
+	if(p)
+		ldns_pkt_free(p);
+debugCC("%s():%d\n", __func__, __LINE__);
+	if(res)
+		ldns_resolver_deep_free(res);
+debugCC("%s():%d\n", __func__, __LINE__);
+	if(address)
+		ldns_rdf_deep_free(address);
 
+debugCC("%s():%d\n", __func__, __LINE__);
 	return result;
 }
 

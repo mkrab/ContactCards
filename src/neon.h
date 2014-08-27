@@ -29,6 +29,12 @@
 #include <ne_props.h>
 
 #include <ldns/ldns.h>
+#include <sys/socket.h>
+#include <netinet/in.h>
+#include <openssl/ssl.h>
+#include <openssl/err.h>
+#include <openssl/x509v3.h>
+#include <openssl/x509.h>
 
 #define NEON_LIB_H
 #endif	/*	NEON_LIB_H	*/

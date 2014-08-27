@@ -36,5 +36,15 @@ PKG_CHECK_MODULES(SQLITE3, sqlite3, SQLITE3_SUFFIX=sqlite3, AC_MSG_ERROR([sqlite
 AC_SUBST(SQLITE3_CFLAGS)
 AC_SUBST(SQLITE3_LIBS)
 
+PKG_CHECK_MODULES(OPENSSL, openssl, OPENSSL_SUFFIX=openssl, AC_MSG_ERROR([openssl is required to compile ContactCards]))
+AC_SUBST(OPENSSL_CFLAGS)
+AC_SUBST(OPENSSL_LIBS)
+
+PKG_CHECK_MODULES([LDNS], libldns,[
+  AM_CONDITIONAL([HAVE_LDNS],[true])],[
+  AC_CHECK_LIB([ldns], [ldns_dane_verify], [LDNS_LIBS=-lldns])
+  AS_IF([test -z "$LDNS_LIBS"],[ AC_MSG_ERROR([ldns is required to compile ContactCards])],[
+    AM_CONDITIONAL([HAVE_LDNS],[true])])])
+
 AC_CONFIG_FILES([Makefile src/Makefile man/Makefile po/Makefile.in])
 AC_OUTPUT
