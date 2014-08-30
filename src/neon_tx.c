@@ -109,11 +109,15 @@ ldns_status ssl_connect_and_get_cert_chain(X509** cert, STACK_OF(X509)** extra_c
 /**
  * validateDANE - simple way to check the certificate
  */
-static gboolean validateDANE(int serverID){
+gboolean validateDANE(int serverID){
 	printfunc(__func__);
 
 	gboolean		result = FALSE;
 	char			*tmp = NULL;
+	ne_uri			uri;
+	ne_sock_addr	*sock_addr;
+	ne_inet_addr	*ip_addr;
+	char			buf[256];
 	ldns_resolver	*res = NULL;
 	ldns_pkt		*p = NULL;
 	ldns_rr_list	*tlsas = NULL;
@@ -123,7 +127,7 @@ static gboolean validateDANE(int serverID){
 	X509_STORE		*store;
 	SSL				*ssl = NULL;
 	SSL_CTX			*ctx = NULL;
-	ldns_rdf		*address = NULL;
+	ldns_rdf		*address;
 
 debugCC("%s():%d\n", __func__, __LINE__);
 
@@ -153,49 +157,72 @@ debugCC("%s():%d\n", __func__, __LINE__);
 debugCC("%s():%d\n", __func__, __LINE__);
 
 	tmp = getSingleChar(appBase.db, "cardServer", "srvUrl", 1, "serverID", serverID, "", "", "", "", "", 0);
+debugCC("%s():%d\n", __func__, __LINE__);
 
-	s = ldns_str2rdf_aaaa(&address, tmp);
-	if (s == LDNS_STATUS_OK) {
-		debugCC("%s():%d\n", __func__, __LINE__);
+	ne_uri_parse(tmp, &uri);
+
+	debugCC("%s(): %s\n", __func__, uri.host);
+
+	sock_addr = ne_addr_resolve("bund.de", 0);
+	if (ne_addr_result(sock_addr)) {
+		debugCC("%s():%d\t%s\n", __func__, __LINE__, ne_addr_error(sock_addr, buf, sizeof(buf)));
+		goto fastExit;
+	}
+debugCC("%s():%d\n", __func__, __LINE__);
+	ip_addr = ne_addr_first(sock_addr);
+debugCC("%s():%d\n", __func__, __LINE__);
+	ne_iaddr_print(ip_addr, buf, sizeof(buf));
+
+debugCC("%s():%d\n", __func__, __LINE__);
+	s = ldns_str2rdf_aaaa(&address, buf);
+	if (s != LDNS_STATUS_OK) {
+		debugCC("%s():%d\t%s\n", __func__, __LINE__, ldns_get_errorstr_by_id(s));
 		/*	Second try on old protocoll	*/
 		s = ldns_str2rdf_a(&address, tmp);
-		if (s == LDNS_STATUS_OK) {
-			debugCC("%s():%d\n", __func__, __LINE__);
+		if (s != LDNS_STATUS_OK) {
+			debugCC("%s():%d\t%s\n", __func__, __LINE__, ldns_get_errorstr_by_id(s));
 			goto fastExit;
 		}
 	}
+
 	s = ssl_connect_and_get_cert_chain(&cert, &extra_certs,
 					ssl, address, 443);
-	if (s == LDNS_STATUS_NETWORK_ERR) {
+	if (s != LDNS_STATUS_OK) {
+		debugCC("%s():%d\t%s\n", __func__, __LINE__, ldns_get_errorstr_by_id(s));
 		goto fastExit;
 	}
 
 debugCC("%s():%d\n", __func__, __LINE__);
-	s = ldns_resolver_new_frm_file(&res, NULL);
-	if (s != LDNS_STATUS_OK) {
-		return FALSE;
+	res = ldns_resolver_new();
+	if(res == NULL){
+		debugCC("%s():%d\n", __func__, __LINE__);
+		goto fastExit;
 	}
 
 debugCC("%s():%d\n", __func__, __LINE__);
 	p = ldns_resolver_query(res, address, LDNS_RR_TYPE_TLSA, LDNS_RR_CLASS_IN,LDNS_RD);
-
+/*
 debugCC("%s():%d\n", __func__, __LINE__);
-	if(!p){
-		return FALSE;
+	if(p == NULL){
+		debugCC("%s():%d\t%s\n", __func__, __LINE__);
+		goto fastExit;
 	}
-
+*/
 debugCC("%s():%d\n", __func__, __LINE__);
 	tlsas = ldns_pkt_rr_list_by_type(p, LDNS_RR_TYPE_TLSA, LDNS_SECTION_ANSWER);
-
+/*
 debugCC("%s():%d\n", __func__, __LINE__);
-	if(!tlsas){
+	if(tlsas == NULL){
+		debugCC("%s():%d\n", __func__, __LINE__);
 		ldns_pkt_free(p);
 		ldns_resolver_deep_free(res);
 		return FALSE;
 	}
+*/
 debugCC("%s():%d\n", __func__, __LINE__);
 	s = ldns_dane_verify(tlsas, cert, extra_certs, store);
 	if (s != LDNS_STATUS_OK) {
+		debugCC("%s():%d\t%s\n", __func__, __LINE__, ldns_get_errorstr_by_id(s));
 		goto fastExit;
 	}
 /*
@@ -221,9 +248,6 @@ debugCC("%s():%d\n", __func__, __LINE__);
 debugCC("%s():%d\n", __func__, __LINE__);
 	if(res)
 		ldns_resolver_deep_free(res);
-debugCC("%s():%d\n", __func__, __LINE__);
-	if(address)
-		ldns_rdf_deep_free(address);
 
 debugCC("%s():%d\n", __func__, __LINE__);
 	return result;
@@ -299,10 +323,6 @@ newCert:
 	issued = (char *) ne_ssl_cert_identity(cert);
 	issuer = ne_ssl_readable_dname(ne_ssl_cert_issuer(cert));
 	setServerCert(appBase.db, serverID, exists, trust, newCer, digest, issued, issuer);
-
-	if(validateDANE(serverID) == TRUE){
-		setSingleInt(appBase.db, "certs", "trustFlag", (int) ContactCards_DIGEST_TRUSTED, "serverID", serverID);
-	}
 
 fastExit:
 	g_free(dbDigest);
