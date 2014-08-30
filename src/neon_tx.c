@@ -54,6 +54,8 @@ gboolean validateUrl(char *url){
 
 ldns_status ssl_connect_and_get_cert_chain(X509** cert, STACK_OF(X509)** extra_certs, SSL* ssl, ldns_rdf* address, uint16_t port)
 {
+	printfunc(__func__);
+
 	struct sockaddr_storage *a = NULL;
 	size_t a_len = 0;
 	int sock;
@@ -160,10 +162,10 @@ debugCC("%s():%d\n", __func__, __LINE__);
 debugCC("%s():%d\n", __func__, __LINE__);
 
 	ne_uri_parse(tmp, &uri);
+	uri.port = uri.port ? uri.port : ne_uri_defaultport(uri.scheme);
+	debugCC("%s(): %s:%d\n", __func__, uri.host, uri.port);
 
-	debugCC("%s(): %s\n", __func__, uri.host);
-
-	sock_addr = ne_addr_resolve("bund.de", 0);
+	sock_addr = ne_addr_resolve(uri.host, 0);
 	if (ne_addr_result(sock_addr)) {
 		debugCC("%s():%d\t%s\n", __func__, __LINE__, ne_addr_error(sock_addr, buf, sizeof(buf)));
 		goto fastExit;
@@ -173,12 +175,14 @@ debugCC("%s():%d\n", __func__, __LINE__);
 debugCC("%s():%d\n", __func__, __LINE__);
 	ne_iaddr_print(ip_addr, buf, sizeof(buf));
 
+debugCC("%s(): %s\n", __func__, buf);
+
 debugCC("%s():%d\n", __func__, __LINE__);
 	s = ldns_str2rdf_aaaa(&address, buf);
 	if (s != LDNS_STATUS_OK) {
 		debugCC("%s():%d\t%s\n", __func__, __LINE__, ldns_get_errorstr_by_id(s));
 		/*	Second try on old protocoll	*/
-		s = ldns_str2rdf_a(&address, tmp);
+		s = ldns_str2rdf_a(&address, buf);
 		if (s != LDNS_STATUS_OK) {
 			debugCC("%s():%d\t%s\n", __func__, __LINE__, ldns_get_errorstr_by_id(s));
 			goto fastExit;
@@ -186,7 +190,7 @@ debugCC("%s():%d\n", __func__, __LINE__);
 	}
 
 	s = ssl_connect_and_get_cert_chain(&cert, &extra_certs,
-					ssl, address, 443);
+					ssl, address, uri.port);
 	if (s != LDNS_STATUS_OK) {
 		debugCC("%s():%d\t%s\n", __func__, __LINE__, ldns_get_errorstr_by_id(s));
 		goto fastExit;
