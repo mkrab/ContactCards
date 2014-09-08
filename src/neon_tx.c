@@ -126,40 +126,34 @@ gboolean validateDANE(int serverID){
 	ldns_status		s = LDNS_STATUS_ERR;
 	X509			*cert;
 	STACK_OF(X509)	*extra_certs;
-	X509_STORE		*store;
+	X509_STORE		*store = NULL;
 	SSL				*ssl = NULL;
 	SSL_CTX			*ctx = NULL;
 	ldns_rdf		*address;
-
-debugCC("%s():%d\n", __func__, __LINE__);
+	ldns_rdf		*dname;
 
 	SSL_load_error_strings();
 	SSL_library_init();
-debugCC("%s():%d\n", __func__, __LINE__);
 
 	ctx = SSL_CTX_new(SSLv23_client_method());
 	if (!ctx) {
 		debugCC("%s():%d\n", __func__, __LINE__);
 		goto fastExit;
 	}
-debugCC("%s():%d\n", __func__, __LINE__);
 
 	ssl = SSL_new(ctx);
 	if (!ssl) {
 		debugCC("%s():%d\n", __func__, __LINE__);
 		goto fastExit;
 	}
-debugCC("%s():%d\n", __func__, __LINE__);
 
 	store = X509_STORE_new();
 	if(!store){
 		debugCC("%s():%d\n", __func__, __LINE__);
 		goto fastExit;
 	}
-debugCC("%s():%d\n", __func__, __LINE__);
 
 	tmp = getSingleChar(appBase.db, "cardServer", "srvUrl", 1, "serverID", serverID, "", "", "", "", "", 0);
-debugCC("%s():%d\n", __func__, __LINE__);
 
 	ne_uri_parse(tmp, &uri);
 	uri.port = uri.port ? uri.port : ne_uri_defaultport(uri.scheme);
@@ -170,14 +164,12 @@ debugCC("%s():%d\n", __func__, __LINE__);
 		debugCC("%s():%d\t%s\n", __func__, __LINE__, ne_addr_error(sock_addr, buf, sizeof(buf)));
 		goto fastExit;
 	}
-debugCC("%s():%d\n", __func__, __LINE__);
-	ip_addr = ne_addr_first(sock_addr);
-debugCC("%s():%d\n", __func__, __LINE__);
+
+	ip_addr = (ne_inet_addr *) ne_addr_first(sock_addr);
 	ne_iaddr_print(ip_addr, buf, sizeof(buf));
 
-debugCC("%s(): %s\n", __func__, buf);
+	debugCC("%s(): %s\n", __func__, buf);
 
-debugCC("%s():%d\n", __func__, __LINE__);
 	s = ldns_str2rdf_aaaa(&address, buf);
 	if (s != LDNS_STATUS_OK) {
 		debugCC("%s():%d\t%s\n", __func__, __LINE__, ldns_get_errorstr_by_id(s));
@@ -196,64 +188,63 @@ debugCC("%s():%d\n", __func__, __LINE__);
 		goto fastExit;
 	}
 
-debugCC("%s():%d\n", __func__, __LINE__);
-	res = ldns_resolver_new();
-	if(res == NULL){
-		debugCC("%s():%d\n", __func__, __LINE__);
+	s = ldns_resolver_new_frm_file(&res, NULL);
+	if (s == LDNS_STATUS_OK) {
+		ldns_resolver_set_dnssec(res, ! FALSE);
+	} else {
+		debugCC("%s():%d\t%s\n", __func__, __LINE__, ldns_get_errorstr_by_id(s));
 		goto fastExit;
 	}
 
-debugCC("%s():%d\n", __func__, __LINE__);
-	p = ldns_resolver_query(res, address, LDNS_RR_TYPE_TLSA, LDNS_RR_CLASS_IN,LDNS_RD);
-/*
-debugCC("%s():%d\n", __func__, __LINE__);
-	if(p == NULL){
-		debugCC("%s():%d\t%s\n", __func__, __LINE__);
-		goto fastExit;
-	}
-*/
-debugCC("%s():%d\n", __func__, __LINE__);
-	tlsas = ldns_pkt_rr_list_by_type(p, LDNS_RR_TYPE_TLSA, LDNS_SECTION_ANSWER);
-/*
-debugCC("%s():%d\n", __func__, __LINE__);
-	if(tlsas == NULL){
-		debugCC("%s():%d\n", __func__, __LINE__);
-		ldns_pkt_free(p);
-		ldns_resolver_deep_free(res);
-		return FALSE;
-	}
-*/
-debugCC("%s():%d\n", __func__, __LINE__);
-	s = ldns_dane_verify(tlsas, cert, extra_certs, store);
+	s = ldns_str2rdf_dname(&dname, uri.host);
 	if (s != LDNS_STATUS_OK) {
 		debugCC("%s():%d\t%s\n", __func__, __LINE__, ldns_get_errorstr_by_id(s));
 		goto fastExit;
 	}
-/*
-debugCC("%s():%d\n", __func__, __LINE__);
-	ldns_rr_list_sort(tlsa);
-	ldns_rr_list_print(stdout, tlsa);
-	ldns_rr_list_deep_free(tlsa);
-*/
+
+	s = ldns_dane_create_tlsa_owner(&dname, dname, uri.port, LDNS_DANE_TRANSPORT_TCP);
+	if (s != LDNS_STATUS_OK) {
+		debugCC("%s():%d\t%s\n", __func__, __LINE__, ldns_get_errorstr_by_id(s));
+		goto fastExit;
+	}
+
+	s = ldns_resolver_query_status(&p, res, dname, LDNS_RR_TYPE_TLSA, LDNS_RR_CLASS_IN,LDNS_RD);
+	if (s != LDNS_STATUS_OK) {
+		debugCC("%s():%d\t%s\n", __func__, __LINE__, ldns_get_errorstr_by_id(s));
+		goto fastExit;
+	}
+
+	tlsas = ldns_pkt_rr_list_by_type(p, LDNS_RR_TYPE_TLSA, LDNS_SECTION_ANSWER);
+	if(ldns_rr_list_rr_count(tlsas) == 0){
+		debugCC("%s():%d\trr_count == 0\n", __func__, __LINE__);
+		goto fastExit;
+	}
+
+	s = ldns_dane_verify(tlsas, cert, extra_certs, store);
+	if (s == LDNS_STATUS_OK) {
+		result = TRUE;
+	} else {
+		debugCC("%s():%d\t%s\n", __func__, __LINE__, ldns_get_errorstr_by_id(s));
+		goto fastExit;
+	}
+
+	ldns_rr_list_sort(tlsas);
+	ldns_rr_list_print(stdout, tlsas);
+	ldns_rr_list_deep_free(tlsas);
+
 
 fastExit:
-debugCC("%s():%d\n", __func__, __LINE__);
 	if(ctx)
 		SSL_CTX_free(ctx);
-debugCC("%s():%d\n", __func__, __LINE__);
 	if(tmp)
 		g_free(tmp);
-debugCC("%s():%d\n", __func__, __LINE__);
 	if(store)
 		X509_STORE_free(store);
-debugCC("%s():%d\n", __func__, __LINE__);
 	if(p)
 		ldns_pkt_free(p);
-debugCC("%s():%d\n", __func__, __LINE__);
 	if(res)
 		ldns_resolver_deep_free(res);
 
-debugCC("%s():%d\n", __func__, __LINE__);
 	return result;
 }
 
