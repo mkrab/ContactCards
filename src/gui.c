@@ -615,6 +615,58 @@ static GtkWidget *createNewCollectionCard(int srvID){
 }
 
 /**
+ * dialogExportBirthdays - dialog to export vCards
+ */
+static void dialogExportBirthdays(int type, int id){
+	printfunc(__func__);
+
+	GtkWidget					*dirChooser;
+	int							result;
+	char						*path = NULL;
+
+	dirChooser = gtk_file_chooser_dialog_new(_("Export Contacts"), NULL, GTK_FILE_CHOOSER_ACTION_SELECT_FOLDER, _("_Cancel"), GTK_RESPONSE_CANCEL, _("_Open"), GTK_RESPONSE_ACCEPT, NULL);
+
+	g_signal_connect(G_OBJECT(dirChooser), "key_press_event", G_CALLBACK(dialogKeyHandler), NULL);
+
+	result = gtk_dialog_run(GTK_DIALOG(dirChooser));
+
+	switch(result){
+		case GTK_RESPONSE_ACCEPT:
+			path = gtk_file_chooser_get_current_folder(GTK_FILE_CHOOSER(dirChooser));
+			exportBirthdays(type, id, path);
+			g_free(path);
+			break;
+		default:
+			break;
+	}
+	gtk_widget_destroy(dirChooser);
+}
+
+/**
+ * cbAddrBookExportBirthdays - Callback from popup-menu to export birthdays
+ */
+void cbAddrBookExportBirthdays(GtkMenuItem *menuitem, gpointer data){
+	printfunc(__func__);
+
+	int				abID = 0;
+
+	abID = GPOINTER_TO_INT(data);
+	dialogExportBirthdays(1, abID);
+}
+
+/**
+ * cbSrvExportBirthdays - Callback from popup-menu to export birthdays
+ */
+void cbSrvExportBirthdays(GtkMenuItem *menuitem, gpointer data){
+	printfunc(__func__);
+
+	int				srvID = 0;
+
+	srvID = GPOINTER_TO_INT(data);
+	dialogExportBirthdays(0, srvID);
+}
+
+/**
  * createNewCollection - Callback from popup-menu to create a new collection
  */
 void createNewCollection(GtkMenuItem *menuitem, gpointer data){
@@ -730,7 +782,7 @@ static GtkWidget *buildNewCard(sqlite3 *ptr, int selID){
 	gtk_widget_set_valign(GTK_WIDGET(bday), GTK_ALIGN_START);
 
 	/*	Adress	*/
-	list = getMultipleCardAttribut(CARDTYPE_ADR, vData);
+	list = getMultipleCardAttribut(CARDTYPE_ADR, vData, FALSE);
 	if (g_slist_length(list) > 1){
 		label = gtk_label_new(_("Address"));
 		sep = gtk_separator_new(GTK_ORIENTATION_HORIZONTAL);
@@ -738,7 +790,7 @@ static GtkWidget *buildNewCard(sqlite3 *ptr, int selID){
 		gtk_grid_attach(GTK_GRID(card), sep, 2, line++, 1, 1);
 		while(list){
 				GSList				*next = list->next;
-				char				*value = list->data;
+				char				*value = (char *) list->data;
 				if(value != NULL){
 					label = gtk_label_new(g_strstrip(g_strdelimit(value, ";", '\n')));
 					gtk_widget_set_halign(GTK_WIDGET(label), GTK_ALIGN_START);
@@ -751,7 +803,7 @@ static GtkWidget *buildNewCard(sqlite3 *ptr, int selID){
 	line++;
 
 	/*	Phone	*/
-	list = getMultipleCardAttribut(CARDTYPE_TEL, vData);
+	list = getMultipleCardAttribut(CARDTYPE_TEL, vData, FALSE);
 	if (g_slist_length(list) > 1){
 		label = gtk_label_new(_("Phone"));
 		sep = gtk_separator_new(GTK_ORIENTATION_HORIZONTAL);
@@ -759,7 +811,7 @@ static GtkWidget *buildNewCard(sqlite3 *ptr, int selID){
 		gtk_grid_attach(GTK_GRID(card), sep, 2, line++, 1, 1);
 		while(list){
 				GSList				*next = list->next;
-				char				*value = list->data;
+				char				*value = (char *) list->data;
 				if(value != NULL){
 					label = gtk_label_new(g_strstrip(value));
 					gtk_widget_set_halign(GTK_WIDGET(label), GTK_ALIGN_START);
@@ -772,7 +824,7 @@ static GtkWidget *buildNewCard(sqlite3 *ptr, int selID){
 	line++;
 
 	/*	EMAIL	*/
-	list = getMultipleCardAttribut(CARDTYPE_EMAIL, vData);
+	list = getMultipleCardAttribut(CARDTYPE_EMAIL, vData, FALSE);
 	if (g_slist_length(list) > 1){
 		label = gtk_label_new(_("EMail"));
 		sep = gtk_separator_new(GTK_ORIENTATION_HORIZONTAL);
@@ -780,7 +832,7 @@ static GtkWidget *buildNewCard(sqlite3 *ptr, int selID){
 		gtk_grid_attach(GTK_GRID(card), sep, 2, line++, 1, 1);
 		while(list){
 				GSList				*next = list->next;
-				char				*value = list->data;
+				char				*value = (char *) list->data;
 				if(value != NULL){
 					char			*uri = NULL;
 					uri = g_strconcat("mailto:", g_strcompress((g_strstrip(value))), NULL);
@@ -796,7 +848,7 @@ static GtkWidget *buildNewCard(sqlite3 *ptr, int selID){
 	line++;
 
 	/*	URL	*/
-	list = getMultipleCardAttribut(CARDTYPE_URL, vData);
+	list = getMultipleCardAttribut(CARDTYPE_URL, vData, FALSE);
 	if (g_slist_length(list) > 1){
 		label = gtk_label_new(_("URL"));
 		sep = gtk_separator_new(GTK_ORIENTATION_HORIZONTAL);
@@ -804,7 +856,7 @@ static GtkWidget *buildNewCard(sqlite3 *ptr, int selID){
 		gtk_grid_attach(GTK_GRID(card), sep, 2, line++, 1, 1);
 		while(list){
 				GSList				*next = list->next;
-				char				*value = list->data;
+				char				*value = (char *) list->data;
 				if(value != NULL){
 					label = gtk_link_button_new(g_strdup_printf("%.42s", g_strcompress((g_strstrip(value)))));
 					gtk_link_button_set_uri (GTK_LINK_BUTTON(label), g_strcompress((g_strstrip(value))));
@@ -818,7 +870,7 @@ static GtkWidget *buildNewCard(sqlite3 *ptr, int selID){
 	line++;
 
 	/*	Note	*/
-	list = getMultipleCardAttribut(CARDTYPE_NOTE, vData);
+	list = getMultipleCardAttribut(CARDTYPE_NOTE, vData, FALSE);
 	if (g_slist_length(list) > 1){
 		label = gtk_label_new(_("Note"));
 		sep = gtk_separator_new(GTK_ORIENTATION_HORIZONTAL);
@@ -826,7 +878,7 @@ static GtkWidget *buildNewCard(sqlite3 *ptr, int selID){
 		gtk_grid_attach(GTK_GRID(card), sep, 2, line++, 1, 1);
 		while(list){
 				GSList				*next = list->next;
-				char				*value = list->data;
+				char				*value = (char *) list->data;
 				if(value != NULL){
 					label = gtk_label_new(g_strcompress(value));
 					gtk_widget_set_halign(GTK_WIDGET(label), GTK_ALIGN_START);
@@ -1003,13 +1055,21 @@ static GtkWidget *buildEditCard(sqlite3 *ptr, int selID, int abID){
 
 	if(selID){
 		naming = getSingleCardAttribut(CARDTYPE_N, vData);
-		namingPtr = g_strsplit(naming, ";", 5);
-		gtk_entry_buffer_set_text(lastNBuf, g_strstrip(namingPtr[0]), -1);
-		gtk_entry_buffer_set_text(firstNBuf, g_strstrip(namingPtr[1]), -1);
-		gtk_entry_buffer_set_text(middleNBuf, g_strstrip(namingPtr[2]), -1);
-		gtk_entry_buffer_set_text(prefixBuf, g_strstrip(namingPtr[3]), -1);
-		gtk_entry_buffer_set_text(suffixBuf, g_strstrip(namingPtr[4]), -1);
-		g_strfreev(namingPtr);
+		if(naming){
+			namingPtr = g_strsplit(naming, ";", 5);
+			gtk_entry_buffer_set_text(lastNBuf, g_strstrip(namingPtr[0]), -1);
+			gtk_entry_buffer_set_text(firstNBuf, g_strstrip(namingPtr[1]), -1);
+			gtk_entry_buffer_set_text(middleNBuf, g_strstrip(namingPtr[2]), -1);
+			gtk_entry_buffer_set_text(prefixBuf, g_strstrip(namingPtr[3]), -1);
+			gtk_entry_buffer_set_text(suffixBuf, g_strstrip(namingPtr[4]), -1);
+			g_strfreev(namingPtr);
+		} else {
+			gtk_entry_buffer_set_text(lastNBuf, "", 0);
+			gtk_entry_buffer_set_text(firstNBuf, "", 0);
+			gtk_entry_buffer_set_text(middleNBuf, "", 0);
+			gtk_entry_buffer_set_text(prefixBuf, "", 0);
+			gtk_entry_buffer_set_text(suffixBuf, "", 0);
+		}
 	}
 
 	transNew->list = items;
@@ -1081,11 +1141,11 @@ static GtkWidget *buildEditCard(sqlite3 *ptr, int selID, int abID){
 	gtk_grid_attach(GTK_GRID(card), sep, 1, line, 2, 1);
 	gtk_grid_attach(GTK_GRID(card), addPhone, 3, line++, 1,1);
 	if(selID){
-		list = getMultipleCardAttribut(CARDTYPE_TEL, vData);
+		list = getMultipleCardAttribut(CARDTYPE_TEL, vData, FALSE);
 		if (g_slist_length(list) > 1){
 			while(list){
 					GSList				*next = list->next;
-					char				*value = list->data;
+					char				*value = (char *) list->data;
 					if(value != NULL){
 						line = contactEditSingleItem(card, items, CARDTYPE_TEL, line, g_strstrip(value));
 					}
@@ -1108,11 +1168,11 @@ static GtkWidget *buildEditCard(sqlite3 *ptr, int selID, int abID){
 	gtk_grid_attach(GTK_GRID(card), sep, 1, line++, 2, 1);
 	//gtk_grid_attach(GTK_GRID(card), addPostal, 2, line++, 1, 1);
 	if(selID){
-		list = getMultipleCardAttribut(CARDTYPE_ADR, vData);
+		list = getMultipleCardAttribut(CARDTYPE_ADR, vData, FALSE);
 		if (g_slist_length(list) > 1){
 			while(list){
 					GSList				*next = list->next;
-					char				*value = list->data;
+					char				*value = (char *) list->data;
 					if(value != NULL){
 						line = contactEditPostalItem(card, items, line, g_strstrip(value));
 					}
@@ -1132,11 +1192,11 @@ static GtkWidget *buildEditCard(sqlite3 *ptr, int selID, int abID){
 	gtk_grid_attach(GTK_GRID(card), sep, 1, line, 2, 1);
 	gtk_grid_attach(GTK_GRID(card), addMail, 3, line++, 1, 1);
 	if(selID){
-		list = getMultipleCardAttribut(CARDTYPE_EMAIL, vData);
+		list = getMultipleCardAttribut(CARDTYPE_EMAIL, vData, FALSE);
 		if (g_slist_length(list) > 1){
 			while(list){
 					GSList				*next = list->next;
-					char				*value = list->data;
+					char				*value = (char *) list->data;
 					if(value != NULL){
 						line = contactEditSingleItem(card, items, CARDTYPE_EMAIL, line, g_strstrip(value));
 					}
@@ -1159,11 +1219,11 @@ static GtkWidget *buildEditCard(sqlite3 *ptr, int selID, int abID){
 	gtk_grid_attach(GTK_GRID(card), sep, 1, line, 2, 1);
 	gtk_grid_attach(GTK_GRID(card), addUrl, 3, line++, 1, 1);
 	if(selID){
-		list = getMultipleCardAttribut(CARDTYPE_URL, vData);
+		list = getMultipleCardAttribut(CARDTYPE_URL, vData, FALSE);
 		if (g_slist_length(list) > 1){
 			while(list){
 					GSList				*next = list->next;
-					char				*value = list->data;
+					char				*value = (char *) list->data;
 					if(value != NULL){
 						line = contactEditSingleItem(card, items, CARDTYPE_URL, line, g_strstrip(value));
 					}
@@ -1186,11 +1246,11 @@ static GtkWidget *buildEditCard(sqlite3 *ptr, int selID, int abID){
 	gtk_grid_attach(GTK_GRID(card), sep, 1, line, 2, 1);
 	gtk_grid_attach(GTK_GRID(card), addIM, 3, line++, 1, 1);
 	if(selID){
-		list = getMultipleCardAttribut(CARDTYPE_IMPP, vData);
+		list = getMultipleCardAttribut(CARDTYPE_IMPP, vData, FALSE);
 		if (g_slist_length(list) > 1){
 			while(list){
 					GSList				*next = list->next;
-					char				*value = list->data;
+					char				*value = (char *) list->data;
 					if(value != NULL){
 						line = contactEditSingleItem(card, items, CARDTYPE_IMPP, line, g_strstrip(value));
 					}
@@ -1213,11 +1273,11 @@ static GtkWidget *buildEditCard(sqlite3 *ptr, int selID, int abID){
 	gtk_grid_attach(GTK_GRID(card), sep, 1, line, 2, 1);
 	gtk_grid_attach(GTK_GRID(card), addNote, 3, line++, 1, 1);
 	if(selID){
-		list = getMultipleCardAttribut(CARDTYPE_NOTE, vData);
+		list = getMultipleCardAttribut(CARDTYPE_NOTE, vData, FALSE);
 		if (g_slist_length(list) > 1){
 			while(list){
 					GSList				*next = list->next;
-					char				*value = list->data;
+					char				*value = (char *) list->data;
 					if(value != NULL){
 						line = contactEditSingleMultilineItem(card, items, CARDTYPE_NOTE, line, g_strstrip(value));
 					}
@@ -1381,6 +1441,7 @@ static void completionContact(GtkEntryCompletion *widget, GtkTreeModel *model, G
 
 	gtk_tree_model_get(model, iter, SELECTION_COLUMN, &selID,  -1);
 	verboseCC("[%s] %d\n",__func__, selID);
+	gtk_tree_selection_select_iter(GTK_TREE_SELECTION(gtk_tree_view_get_selection(GTK_TREE_VIEW(appBase.contactList))), iter);
 	card = buildNewCard(appBase.db, selID);
 	gtk_widget_show_all(card);
 	cleanCard(appBase.contactView);
@@ -1576,7 +1637,6 @@ static void importVCF(GtkMenuItem *menuitem, gpointer data){
 
 	GtkWidget			*chooser;
 	GError				*error = NULL;
-	gboolean			read = FALSE;
 	GSList				*cards;
 	char				*filename=NULL;
 	char				*content = NULL;
@@ -1615,8 +1675,8 @@ static void importVCF(GtkMenuItem *menuitem, gpointer data){
 	if(filename == NULL)
 		return;
 
-	read = g_file_get_contents(filename, &content, NULL, &error);
-	if(read != TRUE){
+	g_file_get_contents(filename, &content, NULL, &error);
+	if(error){
 		verboseCC("[%s] %s\n", __func__, error->message);
 		g_free(filename);
 		g_free(content);
@@ -1712,7 +1772,8 @@ void addressbookTreeContextMenu(GtkWidget *widget, GdkEvent *event, gpointer dat
 		GtkWidget			*menu = NULL,
 							*menuItem = NULL,
 							*menuItem2 = NULL,
-							*menuItem3 = NULL;
+							*menuItem3 = NULL,
+							*menuItem4 = NULL;
 		gtk_tree_model_get(model, &iter, TYP_COL, &typ, ID_COL, &selID,  -1);
 		verboseCC("[%s] typ: %d\tselID: %d\n",__func__, typ, selID);
 
@@ -1721,19 +1782,22 @@ void addressbookTreeContextMenu(GtkWidget *widget, GdkEvent *event, gpointer dat
 			return;
 		}
 
+		menu = gtk_menu_new();
 		switch(typ){
 			case 0:		/*	server	*/
+				menuItem2 = gtk_menu_item_new_with_label(_("Export Birthdays"));
+				g_signal_connect(menuItem2, "activate", (GCallback)cbSrvExportBirthdays, GINT_TO_POINTER(selID));
+				gtk_menu_shell_append(GTK_MENU_SHELL(menu), menuItem2);
 				flags = getSingleInt(appBase.db, "cardServer", "flags", 1, "serverID", selID, "", "", "", "");
 				if(flags & DAV_OPT_MKCOL){
 					verboseCC("[%s] %d supports MKCOL\n", __func__, selID);
 				} else {
 					verboseCC("[%s] %d doesn't support MKCOL\n", __func__, selID);
-					return;
+					break;
 				}
 				if(flags & CONTACTCARDS_ONE_WAY_SYNC){
-					return;
+					break;
 				}
-				menu = gtk_menu_new();
 				verboseCC("[%s] Server %d selected\n", __func__, selID);
 				menuItem = gtk_menu_item_new_with_label(_("Create new address book"));
 				g_signal_connect(menuItem, "activate", (GCallback)createNewCollection, GINT_TO_POINTER(selID));
@@ -1743,10 +1807,12 @@ void addressbookTreeContextMenu(GtkWidget *widget, GdkEvent *event, gpointer dat
 				verboseCC("[%s] Adress book %d selected\n", __func__, selID);
 				srvID = getSingleInt(appBase.db, "addressbooks", "cardServer", 1, "addressbookID", selID, "", "", "", "");
 				flags = getSingleInt(appBase.db, "cardServer", "flags", 1, "serverID", srvID, "", "", "", "");
+				menuItem4 = gtk_menu_item_new_with_label(_("Export Birthdays"));
+				g_signal_connect(menuItem4, "activate", (GCallback)cbAddrBookExportBirthdays, GINT_TO_POINTER(selID));
+				gtk_menu_shell_append(GTK_MENU_SHELL(menu), menuItem4);
 				if(flags & CONTACTCARDS_ONE_WAY_SYNC){
-					return;
+					break;
 				}
-				menu = gtk_menu_new();
 				menuItem = gtk_menu_item_new_with_label(_("Delete address book"));
 				g_signal_connect(menuItem, "activate", (GCallback)addressbookDel, GINT_TO_POINTER(selID));
 				gtk_menu_shell_append(GTK_MENU_SHELL(menu), menuItem);
@@ -1789,7 +1855,8 @@ void addressbookTreeUpdate(void){
 	servers = getListInt(appBase.db, "cardServer", "serverID", 0, "", 0, "", "", "", "");
 	gtk_tree_store_append(store, &toplevel, NULL);
 	gtk_tree_store_set(store, &toplevel, DESC_COL, _("All"), ID_COL, 0, TYP_COL, 0,  -1);
-	if(g_slist_length(servers) == 0){
+	if(g_slist_length(servers) <= 1){
+		debugCC("There are no servers actually\n");
 		g_mutex_unlock(&aBookTreeMutex);
 		return;
 	}
@@ -1807,6 +1874,14 @@ void addressbookTreeUpdate(void){
 		gtk_tree_store_set(store, &toplevel, DESC_COL, serverDesc, ID_COL, serverID, TYP_COL, 0,  -1);
 
 		addressBooks = getListInt(appBase.db, "addressbooks", "addressbookID", 1, "cardServer", serverID, "", "", "", "");
+
+		if(g_slist_length(addressBooks) <= 1){
+			debugCC("There are no address books actually\n");
+			g_slist_free(addressBooks);
+			g_mutex_unlock(&aBookTreeMutex);
+			return;
+		}
+
 		while(addressBooks){
 			GSList				*next2 =  addressBooks->next;
 			int					addressbookID = GPOINTER_TO_INT(addressBooks->data);
@@ -1853,7 +1928,7 @@ static GtkTreeModel *addressbookModelCreate(void){
 /**
  * addressbookTreeCreate - creates the model and view for the adress books
  */
-static GtkWidget *addressbookTreeCreate(void){
+GtkWidget *addressbookTreeCreate(void){
 	printfunc(__func__);
 
 	GtkWidget				*view;
@@ -2002,6 +2077,7 @@ void contactsTreeUpdate(int type, int id){
 			} else {
 				GSList			*addressBooks;
 				addressBooks = getListInt(appBase.db, "addressbooks", "addressbookID", 1, "cardServer", id, "", "", "", "");
+
 				while(addressBooks){
 					GSList				*next =  addressBooks->next;
 					int					addressbookID = GPOINTER_TO_INT(addressBooks->data);
@@ -2017,9 +2093,15 @@ void contactsTreeUpdate(int type, int id){
 						continue;
 					}
 					contacts = getListInt(appBase.db, "contacts", "contactID", 1, "addressbookID", addressbookID, "", "", "", "");
-					contactsTreeFill(contacts);
-					g_slist_free(contacts);
-					addressBooks = next;
+					if(g_slist_length(contacts) <= 1){
+						debugCC("There are no contacts actually\n");
+						g_slist_free(contacts);
+						addressBooks = next;
+					} else {
+						contactsTreeFill(contacts);
+						g_slist_free(contacts);
+						addressBooks = next;
+					}
 				}
 				g_slist_free(addressBooks);
 				g_mutex_unlock(&contactsTreeMutex);
@@ -2032,9 +2114,15 @@ void contactsTreeUpdate(int type, int id){
 		default:
 			break;
 	}
-	contactsTreeFill(contacts);
-	g_slist_free(contacts);
-	g_mutex_unlock(&contactsTreeMutex);
+	if(g_slist_length(contacts) <= 1){
+		debugCC("There are no contacts actually\n");
+		g_slist_free(contacts);
+		g_mutex_unlock(&contactsTreeMutex);
+	} else {
+		contactsTreeFill(contacts);
+		g_slist_free(contacts);
+		g_mutex_unlock(&contactsTreeMutex);
+	}
 }
 
 /**
@@ -2161,7 +2249,7 @@ static void syncServer(GtkWidget *widget, gpointer trans){
 
 	retList = getListInt(appBase.db, "cardServer", "serverID", 0, "", 0, "", "", "", "");
 
-	if(g_slist_length(retList) == 1){
+	if(g_slist_length(retList) <= 1){
 		feedbackDialog(GTK_MESSAGE_WARNING, _("There is no server to sync."));
 		g_slist_free(retList);
 		return;
@@ -2200,7 +2288,7 @@ void guiInit(void){
 	GtkWidget			*ascContact, *descContact, *searchbar;
 	GtkWidget			*emptyCard, *noContact;
 	GtkWidget			*syncMenu;
-	GtkToolItem			*prefItem, *aboutItem, *sep, *newServer, *syncItem, *exportItem;
+	GtkToolItem			*prefItem, *aboutItem, *sep, *newServer, *syncItem, *exportItem, *calItem;
 	GtkTreeSelection	*bookSel, *contactSel;
 	GSList 				*cleanUpList = g_slist_alloc();
 	GtkEntryCompletion	*completion;
@@ -2228,7 +2316,7 @@ void guiInit(void){
 
 	newServer = gtk_tool_button_new(NULL, _("New"));
 	gtk_widget_set_tooltip_text(GTK_WIDGET(newServer), _("New"));
-	gtk_tool_button_set_icon_name (GTK_TOOL_BUTTON (newServer), "document-new");
+	gtk_tool_button_set_icon_name (GTK_TOOL_BUTTON (newServer), "address-book-new");
 	gtk_toolbar_insert(GTK_TOOLBAR(mainToolbar), newServer, -1);
 
 	prefItem = gtk_tool_button_new(NULL, _("Preferences"));
@@ -2240,6 +2328,11 @@ void guiInit(void){
 	gtk_widget_set_tooltip_text(GTK_WIDGET(exportItem), _("Export"));
 	gtk_tool_button_set_icon_name (GTK_TOOL_BUTTON (exportItem), "document-save");
 	gtk_toolbar_insert(GTK_TOOLBAR(mainToolbar), exportItem, -1);
+
+	calItem = gtk_tool_button_new(NULL, _("Birthday Calendar"));
+	gtk_widget_set_tooltip_text(GTK_WIDGET(exportItem), _("Birthday Calendar"));
+	gtk_tool_button_set_icon_name (GTK_TOOL_BUTTON (calItem), "x-office-calendar");
+	gtk_toolbar_insert(GTK_TOOLBAR(mainToolbar), calItem, -1);
 
 	syncItem = gtk_menu_tool_button_new(NULL, _("Refresh"));
 	syncMenu = gtk_menu_new();
@@ -2348,6 +2441,7 @@ void guiInit(void){
 	g_signal_connect(G_OBJECT(newServer), "clicked", G_CALLBACK(newDialog), NULL);
 	g_signal_connect(G_OBJECT(syncItem), "clicked", G_CALLBACK(syncServer), NULL);
 	g_signal_connect(G_OBJECT(exportItem), "clicked", G_CALLBACK(dialogExportContacts), NULL);
+	g_signal_connect(G_OBJECT(calItem), "clicked", G_CALLBACK(birthdayDialog), NULL);
 
 	/*	Build the base structure 	*/
 	appBase.statusbar 		= mainStatusbar;
